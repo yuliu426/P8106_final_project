@@ -1,0 +1,326 @@
+---
+title: "P8106_MidtermProject_mb4757 Report"
+author: "Minjie Bao"
+date: "3/29/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+
+```{r, include=FALSE}
+library(tidyverse)
+library(caret)
+library(e1071)
+library(kernlab)
+library(mlbench)
+library(rpart)
+library(rpart.plot)
+library(party)
+library(partykit)
+library(randomForest)
+library(gbm)
+library(plotmo)
+library(pdp)
+library(lime)
+library(ranger)
+library(plotmo)
+library(splines)
+library(mgcv)
+library(pdp)
+library(earth)
+library(gapminder)
+library(RNHANES)
+library(summarytools)
+library(leaps)
+library(mlbench)
+library(pROC)
+library(pdp)
+library(vip)
+library(AppliedPredictiveModeling)
+library(visdat)
+library(gridExtra)
+library(mvtnorm)
+library(RANN)
+library(MASS)
+library(class)
+library(klaR)
+
+set.seed(2021)
+```
+
+
+
+```{r}
+# data preparation
+raw_df = read_csv("./data/aug_train.csv") %>% 
+  janitor::clean_names()
+
+#total_df %>% count(company_type) %>% arrange(desc(n)) %>% knitr::kable()
+
+total_df = raw_df %>% 
+  mutate(
+    gender = recode(gender, "Male" = "1", "Female" = "2", .default = "0"),
+    relevent_experience = recode(relevent_experience, "Has relevent experience" = "1", .default = "0"), 
+    enrolled_university = recode(enrolled_university, "no_enrollment" = "0", .default = "1"),
+    education_level = recode(education_level, "Graduate" = "1", "Masters" = "2", "Phd" = "3", .default = "0"),
+    major_discipline = recode(major_discipline, "STEM" = "1", .default = "0"),
+    experience = recode(experience, "<1" = "0", "1" = "0", "2" = "0", .default = "1"),
+    last_new_job = recode(last_new_job, "never" = "0", .default = "1"),
+    company_size = recode(company_size, "<10" = "1", "10/49" = "1", "50-99" = "1", "100-500" = "2", "500-999" = "2", "1000-4999" = "3", "5000-9999" = "3", "10000+" = "4", .default = "0"),
+    company_type = recode(company_type,  "Pvt Ltd" = "1", .default = "0"),
+    target = recode(target, "0" = "No", "1" = "Yes"),
+    city_development_index = as.numeric(city_development_index),
+    target = as.factor(target),
+    gender = as.numeric(gender),
+    relevent_experience = as.numeric(relevent_experience),
+    experience = as.numeric(experience),
+    enrolled_university = as.numeric(enrolled_university),
+    education_level = as.numeric(education_level),
+    major_discipline = as.numeric(major_discipline),
+    company_size = as.numeric(company_size),
+    company_type = as.numeric(company_type),
+    last_new_job = as.numeric(last_new_job)
+    ) %>% 
+  dplyr::select(-city, -enrollee_id)
+```
+
+
+
+```{r}
+#Split training testing data
+indexTrain <- createDataPartition(y = total_df$target, p = 0.8, list = FALSE)
+trainData <- total_df[indexTrain, ] #size = 15,327 x 12
+testData <- total_df[-indexTrain, ]#size = 3,831 x 12
+
+```
+
+
+```{r}
+# missing data for total_df
+missing_df = skimr::skim(total_df) %>% 
+dplyr::select(skim_variable, n_missing, complete_rate) %>%
+filter(n_missing != 0) %>% 
+knitr::kable()
+vis_miss(total_df)
+
+# Imputing missing value for training dataset
+trainX = trainData %>% as.data.frame()
+medianImp = preProcess(trainX, method = "medianImpute")
+trainData_median = predict(medianImp, trainX)
+trainData_median = trainData_median %>% 
+relocate(city_development_index, training_hours)
+
+# Imputing missing value for testing dataset
+testX = testData %>% as.data.frame()
+medianImp = preProcess(testX, method = "medianImpute")
+testData_median = predict(medianImp, testX)
+testData_median = testData_median %>% 
+  relocate(city_development_index, training_hours)
+
+sample_train = sample_n(trainData_median, 100)
+sample_test = sample_n(testData_median, 100)
+```
+
+
+### Perform bagging
+
+```{r}
+set.seed(1)
+ctrl2 <- trainControl(method = "repeatedcv", summaryFunction = twoClassSummary, classProbs = TRUE)
+bag.fit <- train(target~.,
+                      data = sample_train,
+                      method = "rpart",
+                      tuneGrid = data.frame(cp = exp(seq(-5,-1, len = 20))),
+                      trControl = ctrl2,
+                      metric = "ROC")
+
+ggplot(bag.fit, highlight = TRUE)
+
+bag.fit$finalModel$cptable
+rpart.plot(bag.fit$finalModel)
+
+rpart.pred <- predict(bag.fit, newdata = sample_test)
+error.rate1 <- 1 - mean(sample_test$target == rpart.pred); error.rate1
+
+
+bag.pred <- predict(bag.fit, newdata = sample_test, type = "prob")[,2]
+roc.bag <- roc(sample_test$target, bag.pred)
+```
+
+
+
+###  Perform random forest 
+
+```{r}
+rf.grid2 <- expand.grid(mtry = 1:6,
+                       splitrule = "gini",
+                       min.node.size = seq(from = 20, to = 100, by = 5))
+set.seed(1)
+rf.fit <- train(target~.,
+                data = sample_train,
+                method = "ranger",
+                tuneGrid = rf.grid2,
+                metric = "ROC",
+                trControl = ctrl2,
+                importance = "impurity")
+
+ggplot(rf.fit,highlight = TRUE)
+
+
+barplot(sort(ranger::importance(rf.fit$finalModel),decreasing = FALSE),
+        las = 2, horiz = TRUE, cex.names = 0.7,
+        col = colorRampPalette(colors = c("cyan","blue"))(19))
+
+
+rf.pred2 <- predict(rf.fit, newdata = sample_test, type = "raw")
+error.rate2 <- 1 - mean(sample_test$target == rf.pred2); error.rate2
+
+
+rf.pred <- predict(rf.fit, newdata = sample_test, type = "prob")[,2]
+roc.rf <- roc(sample_test$target,rf.pred)
+```
+
+
+
+### Perform boosting
+
+```{r}
+boost.grid2 <- expand.grid(n.trees = c(2000,3000,4000),
+                        interaction.depth = 1:10,
+                        shrinkage = c(0.001,0.003,0.005),
+                        n.minobsinnode = 1)
+
+set.seed(1)
+boost.fit <- train(target~.,
+                 data = sample_train,
+                 tuneGrid = boost.grid2,
+                 trControl = ctrl2,
+                 method = "gbm",
+                 distribution = "adaboost",
+                 metric = "ROC",
+                 verbose = FALSE)
+
+ggplot(boost.fit, highlight = TRUE)
+summary(boost.fit$finalModel, las = 2, cBars = 19, cex.names = 0.6)
+
+boost.pred2 <- predict(boost.fit, newdata = sample_test)
+error.rate3 <- 1 - mean(sample_test$target == boost.pred2); error.rate3
+
+boost.pred <- predict(boost.fit, newdata = sample_test, type = "prob")[,2]
+roc.boost <- roc(sample_test$target, boost.pred)
+```
+
+
+# perform a SVM with linear kernel
+
+```{r}
+set.seed(1)
+
+svml.fit <- train(target ~ ., data = sample_train,
+                 method = "svmLinear2",
+                 preProcess = c("center", "scale"),
+                 tuneGrid = data.frame(cost = exp(seq(-5, -1, len = 50))), 
+                 metric = "ROC",
+                 trControl = ctrl2)
+
+ggplot(svml.fit, highlight = TRUE)
+
+svml.fit$finalModel
+svml.fit$bestTune
+
+
+# test error rate
+pred_svml_test <- predict(svml.fit, newdata = sample_test)
+test_error = mean(pred_svml_test != sample_test$target);test_error
+
+
+svml.pred <- predict(svml.fit, newdata = sample_test, type = "prob")[,2]
+roc.svml <- roc(sample_test$target, svml.pred)
+```
+
+
+# perform a SVM with a radial kernel
+
+```{r}
+svmr_grid = expand.grid(C = exp(seq(-5, -1, len = 20)),
+                         sigma = exp(seq(-5, 0, len = 10)))
+set.seed(1)
+svmr.fit <- train(target~., 
+                 data = sample_train,
+                 method = "svmRadial",
+                 preProcess = c("center", "scale"), 
+                 tuneGrid = svmr_grid,
+                 metric = "ROC",
+                 trControl = ctrl2)
+
+ggplot(svmr.fit, highlight = TRUE)
+
+svmr.fit$finalModel
+svmr.fit$bestTune
+
+#test error rate
+pred_svmr_test = predict(svmr.fit, newdata = sample_test, type = "raw")
+test_error_svmr = mean(pred_svmr_test != sample_test$target);test_error_svmr
+
+svmr.pred <- predict(svmr.fit, newdata = sample_test, type = "prob")[,2]
+roc.svmr <- roc(sample_test$target, svmr.pred)
+```
+
+### model comparison
+
+```{r}
+
+auc <- c(roc.bag$auc[1], roc.rf$auc[1], roc.boost$auc[1], roc.svml$auc[1], roc.svmr$auc[1])
+
+
+plot(roc.bag, legacy.axes = TRUE)
+plot(roc.rf, col = 2, add = TRUE)
+plot(roc.boost, col = 3, add = TRUE)
+plot(roc.svml, col = 4, add = TRUE)
+plot(roc.svmr, col = 5, add = TRUE)
+
+
+modelNames <- c("BAG","RF","BOOST","SVML","SVMR")
+legend("bottomright", legend = paste0(modelNames, ": ", round(auc,3)),
+col = 1:5, lwd = 2)
+
+
+
+
+pred.bag <- predict(bag.fit, newdata = sample_test)
+pred.rf <- predict(rf.fit, newdata = sample_test)
+pred.boost <- predict(boost.fit, newdata = sample_test)
+pred.svml <- predict(svml.fit, newdata = sample_test)
+pred.svmr <- predict(svmr.fit, newdata = sample_test)
+
+
+result.bag = confusionMatrix(data = pred.bag,
+reference = sample_test$target)
+accuracy.bag <- result.bag$overall['Accuracy']
+
+result.rf = confusionMatrix(data = pred.rf,
+reference = sample_test$target)
+accuracy.rf <- result.rf$overall['Accuracy']
+
+result.boost = confusionMatrix(data = pred.boost,
+reference = sample_test$target)
+accuracy.boost <- result.boost$overall['Accuracy']
+
+result.svml = confusionMatrix(data = pred.svml,
+reference = sample_test$target)
+accuracy.svml <- result.svml$overall['Accuracy']
+
+
+result.svmr = confusionMatrix(data = pred.svmr,
+reference = sample_test$target)
+accuracy.svmr <- result.svmr$overall['Accuracy']
+
+
+
+accuracy = c(accuracy.bag, accuracy.rf, accuracy.boost, accuracy.svml, accuracy.svmr)
+model_names <- c("BAG","RF","BOOST","SVML","SVMR")
+tibble(model_names,accuracy)
+```
