@@ -513,15 +513,16 @@ plot(smooth(roc_qda), col = 4, add = TRUE)
 ## rf
 
 ```{r}
+index = sample(1:nrow(TrainDataImputed), 300)
 
 set.seed(1)
 rf <- randomForest(target ~ . , 
-                   data = TrainDataImputed,
+                   data = TrainDataImputed[index,],
                    mtry = 3)
 
 set.seed(1)
 rf2 <- ranger(target ~ . , 
-              data = TrainDataImputed,
+              data = TrainDataImputed[index,],
               mtry = 3, 
               probability = TRUE) 
 
@@ -536,7 +537,7 @@ rf2_pred <- predict(rf2,
 ```
 
 ```{r grid search}
-index = sample(1:nrow(TrainDataImputed), 100)
+index = sample(1:nrow(TrainDataImputed), 300)
 
 ctrl <- trainControl(method = "cv",
                      classProbs = T, 
@@ -582,7 +583,7 @@ pdp.rf <-
   partial(pred.var = "city_development_index", 
           grid.resolution = 100,
           prob = TRUE) %>%
-  autoplot(rug = TRUE, train = TrainDataImputed) +
+  autoplot(rug = TRUE, train = TrainDataImputed[index,]) +
   ggtitle("Random forest") 
 
 pdp.rf
@@ -603,14 +604,17 @@ since this is a classification problem, we use classification tree in bagging. m
 For randomforest bagging, mtry is p/3 = 3
 
 ```{r}
+
+index = sample(1:nrow(TrainDataImputed), 300)
+
 set.seed(1)
 rf_bagging <- randomForest(target ~ . , 
-                   data = TrainDataImputed,
+                   data = TrainDataImputed[index,],
                         mtry = 3)
 
 set.seed(1)
 rf2_bagging <- ranger(target ~ . , 
-              data = TrainDataImputed,
+              data = TrainDataImputed[index,],
               mtry = 3, 
               probability = TRUE) 
 
@@ -640,7 +644,7 @@ pdp_rf_bagging = rf_bagging %>%
   partial(pred.var = 'city_development_index',
           grid.resolution = 100,
           prob = T) %>% 
-  autoplot(rug = T, train = TrainDataImputed)+
+  autoplot(rug = T, train = TrainDataImputed[index,])+
   ggtitle("bagging")
 
 pdp_rf_bagging
@@ -662,7 +666,7 @@ roc.bag$auc
 set.seed(1)
 bst <- gbm(target ~ . , 
            TrainDataImputed,
-           distribution = "gaussian",
+           distribution = "adaboost",
            n.trees = 5000, 
            interaction.depth =1,
            shrinkage = 0.01,
@@ -678,8 +682,8 @@ Thus, the number of trees added to the ensemble is 4683
 
 ```{r}
 set.seed(1)
-index = sample(1:nrow(TrainDataImputed), 100)
-ctrl <- trainControl(method = "cv", number = 10)
+index = sample(1:nrow(TrainDataImputed), 300)
+ctrl <- trainControl(method = "cv", number = 10, classProbs = T)
 
 
 
@@ -689,10 +693,12 @@ gbm.grid <- expand.grid(n.trees = c(3000,4000,5000),
                         n.minobsinnode = c(1,10))
 set.seed(1)
 gbm.fit <- train(target ~ . , 
-                 TrainDataImputed[index,], 
+                 TrainDataImputed_rf[index,], 
                  method = "gbm",
                  tuneGrid = gbm.grid,
                  trControl = ctrl,
+                 distribution = "adaboost",
+                 metric = "ROC",
                  preProc = "zv",
                  verbose = FALSE)
 
@@ -714,7 +720,7 @@ roc.gbm$auc
 ctrl_radial <- trainControl(method = "cv", number = 10)
 
 set.seed(1)
-index = sample(1:nrow(TrainDataImputed), 8000)
+index = sample(1:nrow(TrainDataImputed), 300)
 
 
 set.seed(1)
@@ -770,7 +776,7 @@ roc_radial$auc
 
 # take random smaple size of 100 to trian
 set.seed(1)
-index = sample(1:nrow(TrainDataImputed), 100)
+index = sample(1:nrow(TrainDataImputed), 300)
 
 
 set.seed(1)
@@ -869,9 +875,14 @@ roc.svml$auc
 auc <- c(roc_logit_fit$auc[1], 
          roc.earthModel$auc[1], 
          roc_lda$auc[1],
-         roc_qda$auc[1])
+         roc_qda$auc[1],
+         roc.rf$auc[1],
+         roc.bag$auc[1],
+         roc.gbm$auc[1],
+         roc.svml$auc[1],
+         roc_radial$auc[1])
 
-jpeg("./result_pics/auc.jpg")
+jpeg("./result_pics/auc1.jpg")
 
 plot(roc_logit_fit, legacy.axes = TRUE)
 plot(roc.earthModel, col = 2, add = TRUE)
@@ -884,7 +895,8 @@ plot(roc.svml, col = 8, add = TRUE)
 plot(roc_radial, col = 9, add = TRUE)
 
 modelNames <- c("glm","MARS","LDA","QDA","RF", "BAG", "GBM", "SVML", "SVMR")
-legend("bottomright", legend = paste0(modelNames, ": ", round(auc,3)),
+legend("bottomright", 
+       legend = paste0(modelNames, ": ", round(auc,3)),
        col = 1:9, lwd = 2)
 dev.off()
 ```
