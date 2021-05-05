@@ -1,6 +1,6 @@
 ---
-title: "Midterm Project for Data Science II" 
-author: "Yu Liu"
+title: "Final Project for Data Science II" 
+author: "Group 6"
 output:
   pdf_document:
     toc: yes
@@ -22,6 +22,7 @@ header-includes:
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
+
 ```{r include=FALSE}
 library(tidyverse)
 library(visdat)
@@ -37,6 +38,8 @@ library(AppliedPredictiveModeling)
 library(randomForest)
 library(ranger)
 library(gbm)
+library(e1071)
+library(kernlab)
 ```
 
 
@@ -91,6 +94,7 @@ job =job%>%
 summary(job)
 ```
 
+
 ```{r include=FALSE}
 set.seed(2021)
 
@@ -100,6 +104,7 @@ rowTrain = createDataPartition(y = job$target,
 dat_tr = job[rowTrain,]
 dat_te = job[-rowTrain,]
 ```
+
 
 ```{r include=FALSE}
 set.seed(2021)
@@ -214,14 +219,17 @@ featurePlot(x = full_data[, c(1, 11)],
 ```{r include=FALSE}
 x_tr = model.matrix(target~., job_tr)[, -1]
 y_tr = job_tr[,12]
+
+x_te = model.matrix(target~., job_te)[, -1]
+y_te = job_te[,12]
 ```
 
 
 ```{r}
-sample_500 = sample_n(job_tr, 500)
+sample_1000 = sample_n(job_tr, 1000)
 
-x_tr_500 = model.matrix(target~., sample_500)[, -1]
-y_tr_500 = sample_500[, 12]
+x_tr_1000 = model.matrix(target~., sample_1000)[, -1]
+y_tr_1000 = sample_1000[, 12]
 ```
 
 
@@ -234,82 +242,167 @@ ctrl = trainControl(method = "cv",
 
 ```{r include=FALSE}
 set.seed(2)
-model.glm = train(x = x_tr,
-                  y = y_tr,
+model.glm = train(x = x_tr_1000,
+                  y = y_tr_1000,
                   method = 'glm',
                   metric = "ROC",
                  trControl = ctrl)
+#We consider the simple classifier with a cut-off of 0.5 and evaluate its performance on the test data.
+
+test.pred.prob = predict(model.glm, newdata = x_te, type = "prob")[,1]
+test.pred = rep("change", length(test.pred.prob))
+test.pred[test.pred.prob<0.5] = "no_change"
+
+confusionMatrix(data = as.factor(test.pred),
+                reference = y_te,
+                positive = "change")
+model.glm$bestTune
+
+```
+
+```{r include = FALSE}
 
 glmnGrid <- expand.grid(.alpha = seq(0, 1, length = 6),
                         .lambda = exp(seq(-8, -2, length = 20)))
 set.seed(2)
-model.glmn <- train(x = x_tr,
-                    y = y_tr,
+model.glmn <- train(x = x_tr_1000,
+                    y = y_tr_1000,
                     method = "glmnet",
                     tuneGrid = glmnGrid,
                     metric = "ROC",
                     trControl = ctrl)
+#We consider the simple classifier with a cut-off of 0.5 and evaluate its performance on the test data.
 
+test.pred.prob = predict(model.glmn, newdata = x_te, type = "prob")[,1]
+test.pred = rep("change", length(test.pred.prob))
+test.pred[test.pred.prob<0.5] = "no_change"
+
+confusionMatrix(data = as.factor(test.pred),
+                reference = y_te,
+                positive = "change")
+model.glmn$bestTune
+```
+
+
+```{r include = FALSE}
 set.seed(2)
-model.gam <- train(x = x_tr,
-                   y = y_tr,
+model.gam <- train(x = x_tr_1000,
+                   y = y_tr_1000,
                    method = "gam",
                    metric = "ROC",
                    trControl = ctrl)
 
+#We consider the simple classifier with a cut-off of 0.5 and evaluate its performance on the test data.
+
+test.pred.prob = predict(model.gam, newdata = x_te, type = "prob")[,1]
+test.pred = rep("change", length(test.pred.prob))
+test.pred[test.pred.prob<0.5] = "no_change"
+
+confusionMatrix(data = as.factor(test.pred),
+                reference = y_te,
+                positive = "change")
+model.gam$bestTune
+```
+
+
+
+```{r include = FALSE}
 set.seed(2)
-model.mars <- train(x = x_tr,
-                    y = y_tr,
+model.mars <- train(x = x_tr_1000,
+                    y = y_tr_1000,
                     method = "earth",
                     tuneGrid = expand.grid(degree = 1:3, 
                                            nprune = 2:15),
                     metric = "ROC",
                     trControl = ctrl)
 
+test.pred.prob = predict(model.mars, newdata = x_te, type = "prob")[,1]
+test.pred = rep("change", length(test.pred.prob))
+test.pred[test.pred.prob<0.5] = "no_change"
 
+confusionMatrix(data = as.factor(test.pred),
+                reference = y_te,
+                positive = "change")
+model.mars$bestTune
+
+```
+
+
+
+```{r include = FALSE}
 set.seed(2)
-model.lda = train(x = x_tr,
-                  y = y_tr,
+model.lda = train(x = x_tr_1000,
+                  y = y_tr_1000,
                   method = "lda",
                   metric = "ROC",
                   trControl = ctrl)
 
+test.pred.prob = predict(model.lda, newdata = x_te, type = "prob")[,1]
+test.pred = rep("change", length(test.pred.prob))
+test.pred[test.pred.prob<0.5] = "no_change"
 
+confusionMatrix(data = as.factor(test.pred),
+                reference = y_te,
+                positive = "change")
+model.lda$bestTune
+```
+
+
+
+```{r include = FALSE}
 set.seed(2)
-model.qda = train(x = x_tr,
-                  y = y_tr,
+model.qda = train(x = x_tr_1000,
+                  y = y_tr_1000,
                   method = "qda",
                   metric = "ROC",
                   trControl = ctrl)
+
+test.pred.prob = predict(model.qda, newdata = x_te, type = "prob")[,1]
+test.pred = rep("change", length(test.pred.prob))
+test.pred[test.pred.prob<0.5] = "no_change"
+
+confusionMatrix(data = as.factor(test.pred),
+                reference = y_te,
+                positive = "change")
+model.qda$bestTune
 ```
 
 ##################################
 
-```{r}
+```{r include = FALSE}
 
 rf.grid <- expand.grid(mtry = 1:16,
                        splitrule = "gini",
                        min.node.size = seq(from = 2, to = 10, by = 2))
 set.seed(2)
-model.rf <- train(x = x_tr_500,
-                  y = y_tr_500,
+model.rf <- train(x = x_tr_1000,
+                  y = y_tr_1000,
                 method = "ranger",
                 tuneGrid = rf.grid,
                 metric = "ROC",
                 trControl = ctrl)
 
 ggplot(model.rf, highlight = TRUE)
+
+test.pred.prob = predict(model.rf, newdata = x_te, type = "prob")[,1]
+test.pred = rep("change", length(test.pred.prob))
+test.pred[test.pred.prob<0.5] = "no_change"
+
+confusionMatrix(data = as.factor(test.pred),
+                reference = y_te,
+                positive = "change")
+model.rf$bestTune
 ```
 
 
-```{r}
+```{r include = FALSE}
 gbmA.grid <- expand.grid(n.trees = c(2000,3000,4000),
                          interaction.depth = 1:6,
                          shrinkage = c(0.001,0.003,0.005),
                          n.minobsinnode = 1)
 set.seed(2)
-model.gbma <- train(x = x_tr_500,
-                  y = y_tr_500,
+model.gbma <- train(x = x_tr_1000,
+                  y = y_tr_1000,
                   tuneGrid = gbmA.grid,
                   trControl = ctrl,
                   method = "gbm",
@@ -319,48 +412,64 @@ model.gbma <- train(x = x_tr_500,
 
 ggplot(model.gbma, highlight = TRUE)
 
+test.pred.prob = predict(model.gbma, newdata = x_te, type = "prob")[,1]
+test.pred = rep("change", length(test.pred.prob))
+test.pred[test.pred.prob<0.5] = "no_change"
+
+confusionMatrix(data = as.factor(test.pred),
+                reference = y_te,
+                positive = "change")
+model.gbma$bestTune
+
 ```
 
 
 
-```{r}
+```{r include = FALSE}
 set.seed(2)
-model.svml <- train(x = x_tr_500,
-                  y = y_tr_500, 
+model.svml <- train(x = x_tr_1000,
+                  y = y_tr_1000, 
                   method = "svmLinear",
                   # preProcess = c("center", "scale"),
                   tuneGrid = data.frame(C = exp(seq(-2,5,len=20))),
                   trControl = ctrl)
 
 plot(model.svml, highlight = TRUE, xTrans = log)
+
+test.pred.prob = predict(model.svml, newdata = x_te, type = "prob")[,1]
+test.pred = rep("change", length(test.pred.prob))
+test.pred[test.pred.prob<0.5] = "no_change"
+
+confusionMatrix(data = as.factor(test.pred),
+                reference = y_te,
+                positive = "change")
+model.svml$bestTune
 ```
 
 
-```{r}
+```{r include = FALSE}
 svmr.grid <- expand.grid(C = exp(seq(-1,4,len=10)),
                          sigma = exp(seq(-8,0,len=10)))
 
 # tunes over both cost and sigma
 set.seed(2)             
-model.svmr <- train(x = x_tr_500,
-                  y = y_tr_500,
+model.svmr <- train(x = x_tr_1000,
+                  y = y_tr_1000,
                   method = "svmRadialSigma",
                   preProcess = c("center", "scale"),
                   tuneGrid = svmr.grid,
                   trControl = ctrl)
 
 plot(model.svmr, highlight = TRUE)
-```
 
+test.pred.prob = predict(model.svmr, newdata = x_te, type = "prob")[,1]
+test.pred = rep("change", length(test.pred.prob))
+test.pred[test.pred.prob<0.5] = "no_change"
 
-```{r}
-res <- resamples(list(rf = model.rf, 
-                      gbma = model.gbma, 
-                      svmr = model.svmr,
-                      svml = model.svml))
-summary(res)
-bwplot(res, metric = "ROC")
-
+confusionMatrix(data = as.factor(test.pred),
+                reference = y_te,
+                positive = "change")
+model.svmr$bestTune
 ```
 
 
@@ -373,7 +482,11 @@ res <- resamples(list(GLM = model.glm,
                       GAM = model.gam,
                       MARS = model.mars,
                       LDA = model.lda, 
-                      QDA= model.qda))
+                      QDA= model.qda,
+                      rf = model.rf, 
+                      gbma = model.gbma, 
+                      svmr = model.svmr,
+                      svml = model.svml))
 summary(res)
 bwplot(res, metric = "ROC")
 
@@ -392,41 +505,63 @@ degree of interaction:1
 number of retained terms: 10
 
 ```{r include=FALSE}
-ggplot(model.mars)
-model.mars$bestTune
-coef(model.mars$finalModel)
+ggplot(model.gbma)
+model.gbmas$bestTune
+coef(model.gbma$finalModel)
 ```
 
 ###Trainig/Testing performamce
 For test dataset, I used the MARS model to make prediction on test dataset, then made a confusion matrix based on the predicted value and the true value. According to the ROC curve[figure5], the AUC for test data is 0.7645, the overall accuracy is 78.04%, and the Kappa is 0.3393, which had a moderate performance. The sensitivity is  0.40045 and the specificity is 0.90397. The training dataset, according to the result of resampling, has mean AUC 0.7594879, mean sensitivity 0.3910189 and mean specificity 0.9101620.
 
-
-```{r include = FALSE}
-
-x_te = model.matrix(target~., job_te)[, -1]
-y_te = job_te[,12]
-
-test.pred.prob = predict(model.mars, newdata = x_te, type = "prob")[,1]
-test.pred = rep("change", length(test.pred.prob))
-test.pred[test.pred.prob<0.5] = "no_change"
-
-confusionMatrix(data = as.factor(test.pred),
-                reference = y_te,
-                positive = "change")
-
-roc.mars <- roc(y_te, test.pred.prob)
-plot(roc.mars, legacy.axes=TRUE, print.auc = TRUE)
-plot(smooth(roc.mars), col = 4, add = TRUE)
-```
-
-
-
 ###Important variables
 I used vip function to find the important variables. According to the result, the most important variable is "city_development_index", which aligned with the previous finding in visualization. Followed city development index is the relevant experiences. Besides, the vip result also showed that education_level:College and enrolled_university:enrolled also play important roles in predicting the outcome.
 
 ```{r include = FALSE}
-vip(model.mars$finalModel)
+set.seed(1)
+vip(model.gbma, 
+    method = "permute", 
+    train = x_tr_1000,
+    target = "Target",
+    metric = "ROC",
+    nsim = 10,
+    pred_wrapper = predict,
+    geom = "boxplot", 
+    all_permutations = TRUE,
+    mapping = aes_string(fill = "Variable"))
 ```
+
+
+###Partial Dependence Plot
+
+```{r}
+p1 <- pdp::partial(model.gbma, pred.var = c("city_development_index"), grid.resolution = 10) %>% autoplot()
+ p1
+```
+
+
+###Individual conditional expectation curve
+
+```{r include=FALSE}
+ice1.gbma <- gbma.fit %>% 
+  partial(pred.var = "city_development_index", 
+          grid.resolution = 100,
+          ice = TRUE) %>%
+  autoplot(train = x_tr_1000, alpha = .1) +
+  ggtitle("ICE, not centered") 
+
+ice2.gbma <- gbma.fit %>% 
+  partial(pred.var = "city_development_index", 
+          grid.resolution = 100,
+          ice = TRUE) %>%
+  autoplot(train = x_tr_1000, alpha = .1, 
+           center = TRUE) +
+  ggtitle("ICE, centered") 
+
+
+grid.arrange(ice1.gbma, ice2.gbma, nrow = 1)
+```
+
+
 
 ###Limitation of the model
 I think one of the problem of build a MARS model is the speed. During the model built process, the MARS model need the longest time to train.          
@@ -441,9 +576,6 @@ I think the model is flexible enough to capture the underlying truth.
 According to the model, people have relevant experience in data science field, who has less than college education are more likely to change job.
 According to the MARS model, city development index is the most important predictors for predicting whether the person want a new job or not(target).To better understand the relatioship between the features and the target, I created partial dependence plots for city_development_index. This is used to examine the marginal effects of predictors.
 
-```{r}
-p1 <- pdp::partial(model.mars, pred.var = c("city_development_index"), grid.resolution = 10) %>% autoplot()
- p1
-```
+
 
 According to the plot, people live in the city with higher development index are more likely to change job, which make sense--high developed cities usually have more opportunities and challenges. People struggling in these kind of cities are mostly younger people who always seeking for better opportunities, and also they are more adaptable to changes.
