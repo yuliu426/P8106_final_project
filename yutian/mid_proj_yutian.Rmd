@@ -1,0 +1,924 @@
+---
+title: "Midterm_yutian"
+author: "Yutian Luo"
+output:
+  # pdf_document:
+  #   toc: yes
+  #   toc_depth: 2
+  html_document:
+    df_print: paged
+    toc: yes
+    toc_depth: '2'
+header-includes:
+- \usepackage{fancyhdr}
+- \usepackage{lipsum}
+- \pagestyle{fancy}
+- \fancyhead[R]{\thepage}
+- \fancypagestyle{plain}{\pagestyle{fancy}}
+--- 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(out.width="400px", dpi=120)
+
+library(tidyverse)
+library(janitor)
+library(scales)
+library(caret)
+library(missForest)
+library(ggplot2)
+library(naniar)
+library(arsenal)
+
+library(ISLR)
+library(glmnet)
+library(mlbench)
+library(pROC)
+library(pdp)
+library(vip)
+library(AppliedPredictiveModeling)
+library(klaR)
+library(gridExtra)
+library(png)
+library(kernlab)
+library(DALEX)
+library(e1071)
+library(ranger)
+library(gbm)
+```
+
+```{r message=FALSE}
+
+df_test = read.csv(file = 'aug_test.csv', na.strings = "")
+
+df_train = read.csv(file = 'aug_train.csv', na.strings = "")
+
+df_sample = read.csv(file = 'sample_submission.csv', na.strings = "")
+
+```
+
+
+# data preprocessing
+
+## convert to factor, change variable name
+
+```{r}
+
+df_train <-
+  df_train %>% rename(relevant_experience = relevent_experience) %>%
+  mutate(
+    relevant_experience = str_replace(
+      relevant_experience,
+      pattern = "relevent",
+      replacement = "relevant"
+    )
+  ) %>%
+  mutate_if(is.character, as.factor) %>% 
+  mutate(target = as.factor(target)) %>% 
+  mutate(city_development_index = as.factor(city_development_index)) 
+
+df_test <-
+  df_test %>% 
+  rename(relevant_experience = relevent_experience) %>%
+  mutate(
+    relevant_experience = str_replace(
+      relevant_experience,
+      pattern = "relevent",
+      replacement = "relevant"
+    )
+  )%>%
+  mutate_if(is.character, as.factor) %>%
+  mutate(city_development_index = as.factor(city_development_index))
+
+knitr::kable(summary(df_train))
+
+```
+
+
+# Exploratory Analysis and visualization
+
+### visualize experience
+
+```{r message=FALSE, warning=FALSE}
+
+df_train %>% 
+  dplyr::select(experience) %>% 
+  ggplot(aes(x = experience))+
+  geom_histogram(col = 'red',
+                 fill = 'yellow',
+                 stat = 'count')+
+  scale_fill_gradient2("Count", low="green", high="red")+
+  labs(title = "Experience Level Distribution")
+
+ggplot2::ggsave('./result_pics/fig_exper.jpg', device = "jpg")
+
+
+
+df_train = 
+  df_train %>% 
+  mutate(
+    experience = ifelse(experience == '<1', '<1', 
+                      ifelse(experience == c('1','2','3'), '1-3', 
+                      ifelse(experience == c('4','5','6'), '4-6', 
+                      ifelse(experience == c('8','9','10'), '8-10',
+                      ifelse(experience == c('11','12','13'), '11-13', 
+                      ifelse(experience == c('14','15','16'), '14-16',
+                      ifelse(experience == c('16','17','18'), '16-18','>18'
+                      )))))))
+  ) %>% 
+  mutate(
+    experience = as.factor(experience)
+  )
+
+
+df_train %>% 
+  dplyr::select(experience) %>% 
+  filter(experience !='>18') %>% 
+  arrange(desc(experience)) %>% 
+  ggplot(aes(x = experience))+
+  geom_histogram(col = 'red',
+                 fill = 'yellow',
+                 stat = 'count')+
+  scale_fill_gradient2("Count", low="green", high="red")+
+  labs(title = "Experience Level Distribution")
+
+ggplot2::ggsave('./result_pics/fig_exper2.jpg', device = "jpg", width = 3, height = 4)
+                
+```
+
+
+### Visualize missing variables
+
+
+```{r vismis plot, message=FALSE}
+
+jpeg('./result_pics/fig_missing.jpg', width = 500, height = 300, quality = 100)
+vis_miss(df_train, sort_miss = TRUE)
+dev.off()
+
+```
+
+
+ In this plot we have an exploration of how much percentage and the top variables of missing data. We see that company type, company size, gender and major discipline are top 5 missing variables.
+
+
+```{r, message=FALSE}
+
+gg_miss_upset(df_train, 
+              nsets = 10,
+              nintersects = 8)
+# ggplot2::ggsave('./result_pics/fig_mssing2.jpg', 
+#                 device = "jpg", 
+#                 width = 500, 
+#                 height = 300, 
+#                 quality = 100,
+#                 limitsize = FALSE)
+
+
+```
+
+ This plot shows the intersection and amount of missingness. As we can see, the largest amount of missing (2777) is when company type and company size are both missing, while the second largest amount of missing (2224) is when gender alone is missing. So we can see that most of the missing has to do with company size and type not recorded and the same time.
+ 
+ Missing gender is a bit confusing since by intuition the interviewer must know the gender of the interviewee.
+
+ We will look more closely on these 3 variables. 
+ 
+### Top 3 missing variables
+
+```{r gender, message=FALSE}
+
+# plot gender distribution
+p_gender = ggplot(df_train) + 
+  geom_histogram(aes(gender), stat = "count", color="darkblue", fill="lightblue") + 
+  theme_minimal()+
+  labs(
+    title = "Gender Distribution",
+    x = "Gender",
+    y = "Total Count"
+  ) 
+
+p_companysize = ggplot(df_train) + 
+  geom_histogram(aes(company_size), stat = 'count', color = "brown", fill = "pink") +
+    theme_minimal()+
+  labs(
+    title = "Company Size Distribution",
+    x = "Company Size",
+    y = "Total Count"
+  ) 
+
+p_company_type = ggplot(df_train) + 
+  geom_histogram(aes(company_type), stat = 'count', color = "white", fill = "orange")+
+    theme_minimal() +
+  labs(
+    title = "Company Type Distribution",
+    x = "Company Type",
+    y = "Total Count"
+  ) 
+
+
+p_gender 
+ggplot2::ggsave('./result_pics/fig_gender.jpg', device = "jpg")
+
+gridExtra::grid.arrange(p_companysize)
+ggplot2::ggsave('./result_pics/fig_company.jpg', device = "jpg")
+
+gridExtra::grid.arrange(p_company_type)
+ggplot2::ggsave('./result_pics/fig_company_type.jpg', device = "jpg")
+
+
+```
+
+  We can observe that the gender distribution is very uneven, the male count is about 3 times the female count. In this case, we should consider dropping gender as a variable.
+  
+  For company size and company type, each category is more evenly distributed in company size, and most interviewees are from private Ltd. this makes sense in in the job market.
+  
+  After reviewing these plots, we cannot see if there the missingness is from a non- random element. It seems that for those who didn't record company size, they also weren't recorded for company type, this might be from recording error. Thus, the missingness from these three variables are assumed to have MAR relation. Thus, we continue to perform imputation.
+  
+
+# imputation
+
+  In our given data, df_train contains Y, while df_test doesn't. If we simply impute these two df, the imputed test data will depend on the train data and cause bias. Thus, we take only the original df_train as our whole data and partition it into train set and test set to impute.   
+
+  We also drop enrollee_id, city and gender as discussed.
+  
+```{r retake dftrain and partition, warning=FALSE}
+
+indextrain = createDataPartition(y = df_train$target, 
+                                 p = 0.8,
+                                 list = FALSE)
+
+aug_train_for_Im = 
+  df_train[indextrain, ] %>%
+  dplyr::select(-enrollee_id, -city, -gender ) %>%
+  mutate(
+    city_development_index = as.numeric(city_development_index),
+    target = as.factor(target)) %>% 
+  as.data.frame()
+  
+  
+aug_test_for_Im = 
+  df_train[-indextrain,] %>% 
+  dplyr::select(-enrollee_id, -city, -gender ) %>%
+  mutate(
+    city_development_index = as.numeric(city_development_index)) %>% 
+  as.data.frame()
+
+```
+
+
+```{r imputation, warning=FALSE}
+
+# aug_train_for_Im <- 
+#   df_train %>% 
+#   select(-enrollee_id, -city, -gender ) %>%
+#   mutate(
+#     city_development_index = as.numeric(city_development_index),
+#     target = as.factor(target)) %>% 
+#   as.data.frame()
+# 
+# aug_test_for_Im <- 
+#   df_test %>% 
+#   select(-enrollee_id, -city, -gender ) %>%
+#   mutate(
+#     city_development_index = as.numeric(city_development_index)) %>% 
+#   as.data.frame()
+
+### training data imputation
+
+set.seed(1)
+
+TrainDataImputed <- missForest(xmis = aug_train_for_Im, maxiter = 2, ntree = 20)
+
+TrainDataImputed <- TrainDataImputed$ximp
+
+### test data imputation
+
+set.seed(1)
+
+TestDataImputed <- missForest(xmis = aug_test_for_Im, maxiter = 2, ntree = 20)
+TestDataImputed <- TestDataImputed$ximp
+TestDataImputed <- 
+  TestDataImputed %>%
+  mutate(city_development_index = as.numeric(city_development_index))
+
+# train data has 15327*11
+# test data has 3831*11
+
+```
+
+create validation set
+
+```{r validation set, warning=FALSE}
+
+set.seed(1)
+
+PartIndex <- createDataPartition(TrainDataImputed$target, 
+                                  p = .75, 
+                                  list = FALSE, 
+                                  times = 1)
+
+New_aug_Train <- TrainDataImputed[ PartIndex,]
+aug_validation  <- TrainDataImputed[-PartIndex,]
+
+```
+
+## data summary table
+
+  After imputation, the NAs are succesfully imputed. For company size, company type, and major discipline, the imputed porportions of categories stay the same. This is inline with the assumption that the original data missingness is missing at random.
+
+```{r message=FALSE, warning=FALSE, message=FALSE}
+
+# summary table
+tableby.control(pval = FALSE)
+table_one <- tableby(target ~ ., data = TrainDataImputed) 
+
+
+knitr::kable(summary(table_one, title = "HR Data"))
+
+```
+
+ Next step, we will perform model training.
+
+
+# models
+
+## Logistics Regression
+
+
+```{r logit}
+
+contrasts(df_train$target)
+
+logit_fit = glm(target~., 
+                data = TrainDataImputed,
+                family = binomial(link = 'logit'))
+
+summary(logit_fit)
+
+```
+
+### performance evaluation on test set
+
+```{r}
+
+test_pred_logit = predict(logit_fit, newdata = TestDataImputed,
+                          type = 'response')
+
+test_pred = rep("0", length(test_pred_logit))
+test_pred[test_pred_logit > 0.2] = '1'
+
+confusionMatrix(data = as.factor(test_pred),
+                reference = TestDataImputed$target,
+                positive = '1')
+```
+
+Interpretation:
+
+
+```{r roc}
+
+roc_logit_fit = roc(TestDataImputed$target, test_pred_logit)
+
+plot(roc_logit_fit, legacy.axes = TRUE, print.auc = TRUE)
+plot(smooth(roc_logit_fit), col = 4, add = TRUE)
+
+```
+
+
+
+## MARS
+
+```{r}
+
+ctrl1 <- trainControl(method="cv",number=5)
+
+x = TrainDataImputed[-11]
+
+y = TrainDataImputed$target
+
+mars_grid <- expand.grid(degree=1:2,
+                         nprune = 2:30)
+set.seed(7)
+mars.fit <- train(x,y,
+                  method = "earth",
+                  tuneGrid = mars_grid,
+                  trControl = ctrl1)
+
+ggplot(mars.fit)
+
+ggsave('./result_pics/mars_fit.jpg', device = 'jpg')
+
+```
+
+```{r}
+mars.fit$bestTune
+```
+
+Interpretation:
+
+    The model that provides the optimal combination includes second degree interaction effects and retains 23 terms. The cross-validated RMSE for these models is displayed in above; 
+    
+
+```{r}
+coef(mars.fit$finalModel)
+```
+
+```{r}
+jpeg('./result_pics/mars_partial.jpg')
+
+  pdp::partial(mars.fit,pred.var=c("city_development_index"),grid.resolution=10) %>% 
+  autoplot()
+
+dev.off()
+
+
+```
+
+```{r}
+
+pred.earthModel <- predict(mars.fit, newdata=TestDataImputed, type="prob")[,2]
+
+
+roc.earthModel <- pROC::roc(TestDataImputed$target, pred.earthModel)
+
+auc.earthModel <- pROC::auc(roc.earthModel)
+
+plot(roc.earthModel, legacy.axes = TRUE, print.auc = TRUE)
+plot(smooth(roc.earthModel), col = 4, add = TRUE)
+
+```
+
+
+```{r}
+jpeg("./result_pics/mars_imp_var.jpg")
+vip(mars.fit$finalModel)
+dev.off()
+
+```
+
+
+
+
+## LDA
+
+```{r}
+
+lda_fit = lda(target~., 
+              data = TrainDataImputed
+              #subset = PartIndex
+              )
+
+lda_pred = predict(lda_fit, newdata = TestDataImputed)
+
+head(lda_pred$posterior)
+
+```
+
+```{r}
+
+roc_lda = roc(TestDataImputed$target,
+              lda_pred$posterior[,2],
+              levels = c("0","1"))
+
+plot(roc_lda, legacy.axes = TRUE, print.auc = TRUE)
+plot(smooth(roc_lda), col = 4, add = TRUE)
+
+```
+
+
+## QDA
+
+
+```{r}
+
+qda_fit = qda(target~., 
+              data = TrainDataImputed
+              #subset = PartIndex
+              )
+
+qda_pred = predict(qda_fit, newdata = TestDataImputed)
+head(qda_pred$posterior)
+
+roc_qda = roc(TestDataImputed$target,
+              qda_pred$posterior[,2],
+              levels = c("0","1"))
+
+plot(roc_qda, legacy.axes = TRUE, print.auc = TRUE)
+plot(smooth(roc_qda), col = 4, add = TRUE)
+
+```
+
+
+
+
+## rf
+
+```{r}
+index = sample(1:nrow(TrainDataImputed), 300)
+
+set.seed(1)
+rf <- randomForest(target ~ . , 
+                   data = TrainDataImputed[index,],
+                   mtry = 3)
+
+set.seed(1)
+rf2 <- ranger(target ~ . , 
+              data = TrainDataImputed[index,],
+              mtry = 3, 
+              probability = TRUE) 
+
+# prediction
+rf_pred<- predict(rf, 
+                  newdata = TestDataImputed, 
+                  type = "prob")[,1]
+
+rf2_pred <- predict(rf2, 
+                    data = TestDataImputed, 
+                    type = "response")$predictions[,1]
+```
+
+```{r grid search}
+index = sample(1:nrow(TrainDataImputed), 300)
+
+ctrl <- trainControl(method = "cv",
+                     classProbs = T, 
+                     summaryFunction = twoClassSummary)
+
+rf.grid <- expand.grid(mtry = 1:10,
+                       splitrule = "gini",
+                       min.node.size = seq(from = 8, to = 15, by = 2))
+
+TrainDataImputed_rf = 
+  TrainDataImputed %>% 
+  mutate(
+    target = fct_recode(target, "yes"="1", "no" = "0")
+  )
+
+set.seed(1)
+rf.fit = train(target~.,
+               data = TrainDataImputed_rf[index,],
+               method = "ranger",
+               tuneGrid = rf.grid,
+               metric = "ROC",
+               trControl = ctrl)
+
+ggplot(rf.fit, highlight = T)
+```
+
+
+```{r}
+rf_pred = predict(rf.fit, newdata = TestDataImputed, type = "prob")[,1]
+```
+
+```{r}
+ 
+varImpPlot(rf,
+           sort = T,
+           n.var = 5,
+           main = "Top 5 - Variable Importance")
+
+```
+```{r}
+pdp.rf <- 
+  rf.fit %>% 
+  partial(pred.var = "city_development_index", 
+          grid.resolution = 100,
+          prob = TRUE) %>%
+  autoplot(rug = TRUE, train = TrainDataImputed[index,]) +
+  ggtitle("Random forest") 
+
+pdp.rf
+```
+
+### roc 
+
+```{r}
+roc.rf <- roc(TestDataImputed$target, rf_pred)
+roc.rf$auc
+```
+
+
+## Bagging
+
+since this is a classification problem, we use classification tree in bagging. mtry is the number of predictors.
+
+For randomforest bagging, mtry is p/3 = 3
+
+```{r}
+
+index = sample(1:nrow(TrainDataImputed), 300)
+
+set.seed(1)
+rf_bagging <- randomForest(target ~ . , 
+                   data = TrainDataImputed[index,],
+                        mtry = 3)
+
+set.seed(1)
+rf2_bagging <- ranger(target ~ . , 
+              data = TrainDataImputed[index,],
+              mtry = 3, 
+              probability = TRUE) 
+
+# prediction
+rf_bagging.pred <- predict(rf_bagging, 
+                           newdata = TestDataImputed, 
+                           type = "prob")[,1]
+
+rf2_bagging.pred <- predict(rf2_bagging, 
+                            data = TestDataImputed, 
+                            type = "response")$predictions[,1]
+```
+
+```{r}
+varImpPlot(rf_bagging,
+           sort = T,
+           n.var = 5,
+           main = "Top 5 - Variable Importance")
+
+```
+Interpretation:
+
+    * by bagging, we found that the most important variables are city development index, training hours, company sizes and so on.
+    
+```{r}
+pdp_rf_bagging = rf_bagging %>% 
+  partial(pred.var = 'city_development_index',
+          grid.resolution = 100,
+          prob = T) %>% 
+  autoplot(rug = T, train = TrainDataImputed[index,])+
+  ggtitle("bagging")
+
+pdp_rf_bagging
+
+```
+ 
+### ROC
+
+```{r}
+roc.bag <- roc(TestDataImputed$target, rf_bagging.pred)
+roc.bag$auc
+```
+
+    
+## Boosting
+
+```{r}
+
+set.seed(1)
+bst <- gbm(target ~ . , 
+           TrainDataImputed,
+           distribution = "adaboost",
+           n.trees = 5000, 
+           interaction.depth =1,
+           shrinkage = 0.01,
+           cv.folds = 10,
+           n.cores = 2)
+
+gbm.perf(bst, method = "cv")
+
+
+```
+
+Thus, the number of trees added to the ensemble is 4683
+
+```{r}
+set.seed(1)
+index = sample(1:nrow(TrainDataImputed), 300)
+ctrl <- trainControl(method = "cv", number = 10, classProbs = T)
+
+
+
+gbm.grid <- expand.grid(n.trees = c(3000,4000,5000),
+                        interaction.depth = 1:4,
+                        shrinkage = c(0.001,0.003,0.005),
+                        n.minobsinnode = c(1,10))
+set.seed(1)
+gbm.fit <- train(target ~ . , 
+                 TrainDataImputed_rf[index,], 
+                 method = "gbm",
+                 tuneGrid = gbm.grid,
+                 trControl = ctrl,
+                 distribution = "adaboost",
+                 metric = "ROC",
+                 preProc = "zv",
+                 verbose = FALSE)
+
+ggplot(gbm.fit, highlight = TRUE)
+
+gbm_pred = predict(bst, data = TestDataImputed)
+
+```
+### ROC
+
+```{r}
+roc.gbm <- roc(TrainDataImputed$target, gbm_pred)
+roc.gbm$auc
+```
+
+## Radial Kernel
+
+```{r}
+ctrl_radial <- trainControl(method = "cv", number = 10)
+
+set.seed(1)
+index = sample(1:nrow(TrainDataImputed), 300)
+
+
+set.seed(1)
+svm_radial <- svm(target ~ ., 
+                  data = TrainDataImputed[index,],
+                  method = 'radial',
+                  cost = 0.01)
+summary(svm_radial)
+postResample(predict(svm_radial, TrainDataImputed), TrainDataImputed$target)
+postResample(predict(svm_radial, TestDataImputed), TestDataImputed$target)
+
+```
+
+Interpretation:
+  
+    * the model accuracy for training data is 75%
+    * the model accuracy for testing data is 75%
+    
+```{r}
+
+set.seed(1)
+svm_radial_tune <- train(target ~ ., 
+                         data = TrainDataImputed[index,],
+                         method = 'svmRadial',
+                         trControl = ctrl_radial,
+                         preProcess = c("zv"),
+                         tuneGrid = expand.grid(C = seq(0.01, 10, length.out = 20),
+                                                sigma = 0.05691))
+svm_radial_tune
+postResample(predict(svm_radial_tune, TrainDataImputed), TrainDataImputed$target)
+postResample(predict(svm_radial_tune, TestDataImputed), TestDataImputed$target)
+```
+
+Interpretation:
+
+    * the training tuned model is 82% accurate
+    * the testing tuned model is 75% accurate
+    
+```{r}
+svm_radial_pred = predict(svm_radial_tune, TestDataImputed)
+```
+
+### ROC
+
+```{r}
+roc_radial = roc(TestDataImputed$target, as.numeric(svm_radial_pred))
+roc_radial$auc
+```
+
+## Linear Kernel
+
+```{r}
+
+# take random smaple size of 100 to trian
+set.seed(1)
+index = sample(1:nrow(TrainDataImputed), 300)
+
+
+set.seed(1)
+linear_svm_tune = tune.svm(target~.,
+                           data = TrainDataImputed[index,],
+                           kernel = "linear",
+                           cost = exp(seq(-5,2,len=50)),
+                           sclae = TRUE)
+plot(linear_svm_tune)
+
+linear_svm_tune$best.parameters
+
+best_linear_svm = linear_svm_tune$best.model
+summary(best_linear_svm) # choose as best model
+
+```
+
+
+```{r}
+# prediction
+pred_svm_linear = predict(best_linear_svm,
+                          newdata = TestDataImputed)
+
+# confusionMatrix(data = pred_svm_linear,
+#                 reference = TrainDataImputed$target)
+
+confusionMatrix(data = pred_svm_linear,
+                reference = TestDataImputed$target)
+
+```
+
+Interpretation:
+
+    * the accuracy on test data is 75% for linear kernel
+
+```{r}
+ctrl <- trainControl(method = "cv", number = 10)
+set.seed(1)
+svml_fit <- train(target~., 
+                  data = TrainDataImputed[index,], 
+                  method = "svmLinear2",
+                  preProcess = c("zv"),    # use zv to identify numeric X with single val
+                  tuneGrid = data.frame(cost = seq(0.01, 20, length.out = 20)),
+                  trControl = ctrl)
+svml_fit
+postResample(predict(svml_fit, TrainDataImputed), TrainDataImputed$target)
+postResample(predict(svml_fit, TestDataImputed), TestDataImputed$target)
+
+```
+
+Interpretation:
+
+    * after tuning, the training set accuracy is 74%
+    * after tuning, the testing set accuracy is 74%
+    * as we see, the linear kernel has not improve after tuning. 
+
+
+
+### ROC
+
+```{r}
+svml_pred = predict(svml_fit, TrainDataImputed)
+
+roc.svml = roc(TrainDataImputed$target, as.numeric(svml_pred))
+
+roc.svml$auc
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Model Comparison
+
+
+```{r}
+
+auc <- c(roc_logit_fit$auc[1], 
+         roc.earthModel$auc[1], 
+         roc_lda$auc[1],
+         roc_qda$auc[1],
+         roc.rf$auc[1],
+         roc.bag$auc[1],
+         roc.gbm$auc[1],
+         roc.svml$auc[1],
+         roc_radial$auc[1])
+
+jpeg("./result_pics/auc1.jpg")
+
+plot(roc_logit_fit, legacy.axes = TRUE)
+plot(roc.earthModel, col = 2, add = TRUE)
+plot(roc_lda, col = 3, add = TRUE)
+plot(roc_qda, col = 4, add = TRUE)
+plot(roc.rf, col = 5, add = TRUE)
+plot(roc.bag, col = 6, add = TRUE)
+plot(roc.gbm, col = 7, add = TRUE)
+plot(roc.svml, col = 8, add = TRUE)
+plot(roc_radial, col = 9, add = TRUE)
+
+modelNames <- c("glm","MARS","LDA","QDA","RF", "BAG", "GBM", "SVML", "SVMR")
+legend("bottomright", 
+       legend = paste0(modelNames, ": ", round(auc,3)),
+       col = 1:9, lwd = 2)
+dev.off()
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

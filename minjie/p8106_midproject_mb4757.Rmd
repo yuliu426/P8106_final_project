@@ -1,0 +1,364 @@
+---
+title: "P8106_MidtermProject_mb4757 Report"
+author: "Minjie Bao"
+date: "3/29/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+```
+
+
+```{r, include=FALSE}
+library(tidyverse)
+library(caret)
+library(glmnet)
+library(e1071)
+library(plotmo)
+library(splines)
+library(mgcv)
+library(pdp)
+library(earth)
+library(gapminder)
+library(RNHANES)
+library(summarytools)
+library(leaps)
+library(mlbench)
+library(pROC)
+library(pdp)
+library(vip)
+library(AppliedPredictiveModeling)
+library(visdat)
+library(gridExtra)
+library(mvtnorm)
+library(RANN)
+library(MASS)
+library(class)
+library(klaR)
+
+set.seed(2021)
+```
+
+# Introduction
+
+A data science company wants to hire data scientists among people who successfully pass some courses provided by the Company. Many people sign up for their training. The data is collected from the information that the candidates provided. There are 19158 rows and 14 columns in the raw data set.  Our motivation for this project is to help the Company know which of these candidates really want to work for the company or will look for a new employment. This project can help the Company to reduce the cost and time as well as the quality of training or planning for the courses and categorization of candidates. 
+
+We want to understand that what factors lead a person to leave their current jobs. We are going to predict the probability of weather a candidate will look for a new job or will work for the company, and interpreting affected factors on employee decisions.
+
+# Data preparation/cleaning
+
+First, I recode all the character type variables to categorical variables in different levels, and then convert them to numeric. I delete the variables `city` and `enrollee_id` since we already has `city_development_index` variable, which can substitute to `city` variable, and `enrollee_id` variable is not useful for model prediction. I keep all the other variables: city_development_index, training_hours, gender, relevent_experience, enrolled_university, education_level, major_discipline, experience, company_size, company_type and last_new_job as predictors. For the outcome variable `target`, I recode the values "1" and "0" as "Yes" and "No", and then converted `target` as factor. 
+
+After cleaning the raw data, I split the whole dataset as 80% trainData and 20% testData. The trainData has 15,327 rows and 12 variables, and the testData has 3,831 rows and 12 variables.
+
+To dealing with the missing data, the whole dataset has a lot of missing values (9%), especially in `gender`, `company_size`, `company_type`, and `major_discipline`. These four predictors' compete_rates are < 90%. The variables are missing at random (MAR), which means the missingness depends only on the observed data. Therefore, I consider to use imputation method. I choose median imputation to impute the missing values in the trainData and testData separately.  Since all the missing data are categorical variables, median imputation seems better than knn and bag imputation. Because knnImpute and bagImpute return digital values for the missing data, which is not appropriate for our categorical data. Figure 1 is a visualization plot of missing data.
+
+# Exploratory analysis/Visualization
+
+From the Gender Distribution table and Education Level by Gender plot in Figure 2, we can see that there are too many males(93%) in the training data set, which indicates that gender is a biased variable, and it is not a good predictor. However, I am still going to keep this variable in the prediction model. From the feature plot in Figure 3, we can see the distribution of the only two continuous variable in the data set `city_development_index` and `training_hours`.
+
+
+# Models
+
+Since we are going to predict binary response, I choose 6 models for classification: GLM (logistic regression), GLMN (penalized logistic regression), LDA, QDA, GAM and MARS. Each model has different assumptions. For GLM logistic regression model, it assumes independence of errors, linearity in the logit for continuous variables, absence of multicollinearity, and lack of strongly influential outliers. GAM and MARS models assume nonlinear relationship between the dependent variable and covariates. LDA assumes equality of covariances among the predictor variables X across each all levels of Y, and this assumption is relaxed with the QDA model. For the Mars model, I choose tuning parameter: degree = 1:3 and nprune = 8:15 because I have 11 predictors. For the confusion matrix I choose 0.5 as the cutoff point.
+
+I use confusion matrix to compare the training and testing performance. From the confusion matrix output by using test data: The accuracy is 0.7716, which means the overall fraction of correct prediction is 0.7716 with 95% CI between 0.758 and 0.7848. The NIR (No Information Rate) is 0.7507, which is the fraction of "Yes" class in both predicted and trained dataset. The p-value is 0.001374 < 0.05, which means we reject the null hypothesis and conclude that accuracy > no information rate. The kappa value is 0.2467, which is the agreement between the predictive value and the true value. A kappa value of 1 represents perfect agreement, while a value of 0 represents no agreement. The sensitivity is 0.25759, measures the proportion of actual positives that are correctly identified TP/(TP+FN). The specificity is 0.94228, measures the proportion of actual negative that are correctly identified TN/(FP+TN). 
+
+The confusion matrix results by using training data:
+The accuracy is 0.7644. The NIR (No Information Rate) is 0.7506. The p-value is 3.855e-05 < 0.05. The kappa value is 0.221. The sensitivity is 0.23993. The specificity is 0.93864. Comparing the results with testing data, we can see that the accuracy of confusion matrix by using training data is higher than test data, NIRs are similar, p value, kappa value, sensitivity and specificity of training data are smaller than test data.
+
+
+From the importance plot in MARS (Figure 4), we can see that city_development_index is the most important variable. Other variables like relevent_experience, education_level, company_size, enrolled_university, and last_new_job also play important roles in predicting the response.
+
+Comparing the six models' ROC curves (Figure 6) and their AUC values: AUC for GLM  = 0.736, AUC for GLMN = 0.735, AUC for LDA = 0.734, AUC for QDA = 0.732, AUC for GLMN = 0.747, and AUC for MARS = 0.786. We can see that MARS model has the largest AUC = 0.786. This indicates that MARS model has a better performance than other models. All these models' AUC are close to 0.7, which means there is a 70% chance that the model will be able to distinguish between positive class and negative class. From the ROC curves, we can also see that MARS (purple ROC curve) is more efficient than other models since the ROC curve is closer to the upper left corner.
+
+# Limitation
+
+This data set contains too many categorical variables and there are only two continuous variables:`city_development_index` and `training_hours`. This dataset doesn't contain enough essential factors such like age, offered salary, accommodation, and the company profile. As we know that the employee satisfaction index is a key for making such decision. This dataset can include more essential factors to help the company create a more accurate model.
+
+For models, the major limitation of GLM Logistic Regression model is the assumption of linearity between the dependent variable and the independent variables. Also, Logistic Regression requires average or no multicollinearity between independent variables. Logistic regression attempts to predict binary outcomes based on a set of independent variables, but logit models are vulnerable to overconfidence. That is, the models can appear to have more predictive power than they actually do as a result of sampling bias. This will cause overfitting problem. A disadvantage of QDA is that it cannot be used as a dimensionality reduction technique. The limitation of GAM and MARS model is slower to train the model.
+
+
+# Conclusions
+
+In conclusion, MARS model is the best model with AUC = 0.786. The important variables: city_development_index, relevent_experience, education_level, company_size, enrolled_university, and last_new_job will lead a person to leave their current jobs.
+The city_development_index is the most important variable that will affect people to look for a new job or work for the Data Science Company. We can see a clear relationship between `city_development_index` and `target` from the partial dependence plot in Figure 6. The people in the city with city_development_index > 6.2 are more likely to change their jobs. As the city_development_index increases, the predicted `target` value more approach to 1. Although there seems to be a small decrease of job changes in city_development_index between 0.91 and 0.93, the total plot trend is increasing. This indicates that people in a high development city tend to look for a new job actively, which makes sense since high development cities always have more opportunities than low development cities. 
+
+
+
+```{r}
+# data preparation
+raw_df = read_csv("./data/aug_train.csv") %>% 
+  janitor::clean_names()
+
+#total_df %>% count(company_type) %>% arrange(desc(n)) %>% knitr::kable()
+
+total_df = raw_df %>% 
+  mutate(
+    gender = recode(gender, "Male" = "1", "Female" = "2", .default = "0"),
+    relevent_experience = recode(relevent_experience, "Has relevent experience" = "1", .default = "0"), 
+    enrolled_university = recode(enrolled_university, "no_enrollment" = "0", .default = "1"),
+    education_level = recode(education_level, "Graduate" = "1", "Masters" = "2", "Phd" = "3", .default = "0"),
+    major_discipline = recode(major_discipline, "STEM" = "1", .default = "0"),
+    experience = recode(experience, "<1" = "0", "1" = "0", "2" = "0", .default = "1"),
+    last_new_job = recode(last_new_job, "never" = "0", .default = "1"),
+    company_size = recode(company_size, "<10" = "1", "10/49" = "1", "50-99" = "1", "100-500" = "2", "500-999" = "2", "1000-4999" = "3", "5000-9999" = "3", "10000+" = "4", .default = "0"),
+    company_type = recode(company_type,  "Pvt Ltd" = "1", .default = "0"),
+    target = recode(target, "0" = "No", "1" = "Yes"),
+    city_development_index = as.numeric(city_development_index),
+    target = as.factor(target),
+    gender = as.numeric(gender),
+    relevent_experience = as.numeric(relevent_experience),
+    experience = as.numeric(experience),
+    enrolled_university = as.numeric(enrolled_university),
+    education_level = as.numeric(education_level),
+    major_discipline = as.numeric(major_discipline),
+    company_size = as.numeric(company_size),
+    company_type = as.numeric(company_type),
+    last_new_job = as.numeric(last_new_job)
+    ) %>% 
+  dplyr::select(-city, -enrollee_id)
+```
+
+
+
+```{r}
+#Split training testing data
+indexTrain <- createDataPartition(y = total_df$target, p = 0.8, list = FALSE)
+trainData <- total_df[indexTrain, ] #size = 15,327 x 12
+testData <- total_df[-indexTrain, ]#size = 3,831 x 12
+
+```
+
+### Figure 1:
+
+```{r}
+# missing data for total_df
+missing_df = skimr::skim(total_df) %>% 
+dplyr::select(skim_variable, n_missing, complete_rate) %>%
+filter(n_missing != 0) %>% 
+knitr::kable()
+vis_miss(total_df)
+
+# Imputing missing value for training dataset
+trainX = trainData %>% as.data.frame()
+medianImp = preProcess(trainX, method = "medianImpute")
+trainData_median = predict(medianImp, trainX)
+trainData_median = trainData_median %>% 
+relocate(city_development_index, training_hours)
+
+# Imputing missing value for testing dataset
+testX = testData %>% as.data.frame()
+medianImp = preProcess(testX, method = "medianImpute")
+testData_median = predict(medianImp, testX)
+testData_median = testData_median %>% 
+  relocate(city_development_index, training_hours)
+
+```
+
+### Figure 2:
+
+```{r}
+plot_df = trainData_median %>% 
+  mutate(education_level = recode(education_level, "1" = "Graduate", "2" = "Masters",  "3" = "Phd",  .default = "<= High School"),
+         gender = recode(gender, "1" = "Male", "2" = "Female", .default = "Other"),
+education_level = as.factor(education_level),
+gender = as.factor(gender)
+) 
+
+plot_df %>% 
+  group_by(gender) %>%
+  summarise(total = n()) %>%
+  mutate(Percent = paste0(round(100 * total / sum(total), 0), "%")) %>%
+  arrange(desc(total)) %>% knitr::kable()
+
+
+plot_df %>% 
+  dplyr::select(gender, education_level, enrolled_university, experience) %>%
+  filter(
+    !is.na(gender),
+    !is.na(education_level),
+    !is.na(enrolled_university),
+    !is.na(experience)
+  ) %>%
+  group_by(experience, education_level, gender) %>%
+  summarise(Count = n(), .groups = "drop") %>%
+  ungroup() %>%
+  ggplot(aes(x = gender, y = Count, fill = education_level)) +
+  geom_col() +
+  facet_wrap(~ education_level, scales = "free") +
+  theme(strip.background = element_rect(fill = "darkblue")) +
+  theme(strip.text = element_text(colour = 'white', face = "bold")) +
+  theme(legend.position = "none") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(
+    title = "Education level by Gender ",
+    x = "Gender",
+    y = "Count"
+  ) 
+
+```
+
+### Figure 3:
+
+```{r}
+# density plot
+transparentTheme(trans = .4)
+featurePlot(x = plot_df[, 1:2], 
+            y = plot_df$target,
+            scales = list(x=list(relation = "free"), 
+                        y=list(relation = "free")),
+            plot = "density", pch = "|", 
+            auto.key = list(columns = 2))
+
+```
+
+
+```{r}
+### logistics Regression
+
+model.glm = glm(target ~ city_development_index + training_hours + gender + relevent_experience + enrolled_university + education_level + major_discipline + experience + company_size + company_type + last_new_job,
+data = trainData_median,
+family = binomial(link = 'logit'))
+#summary(model.glm)
+```
+
+
+```{r, include=FALSE}
+#confusion matrix for test data
+contrasts(total_df$target)
+
+test_pred_prob <- predict(model.glm, newdata = testData_median,
+type = "response")
+test_pred <- rep("No", length(test_pred_prob))
+test_pred[test_pred_prob > 0.5] <- "Yes"
+confusionMatrix(data = as.factor(test_pred),
+reference = testData_median$target,
+positive = "Yes")
+
+# predict using test data
+test.pred.prob = predict(model.glm, newdata = testData_median, type = "response")
+# plot ROC curve and report AUC
+roc.glm <- roc(testData_median$target, test.pred.prob)
+
+
+# confusion matrix for train data
+train_pred_prob <- predict(model.glm, newdata = trainData_median,
+type = "response")
+train_pred <- rep("No", length(train_pred_prob))
+train_pred[train_pred_prob > 0.5] <- "Yes"
+confusionMatrix(data = as.factor(train_pred),
+reference = trainData_median$target,
+positive = "Yes")
+
+```
+
+```{r}
+### Penalized logistic regression
+
+ctrl <- trainControl(method = "cv", summaryFunction = twoClassSummary, classProbs = TRUE)
+
+glmnGrid <- expand.grid(.alpha = seq(0, 1, length = 6),
+.lambda = exp(seq(-8, -2, length = 20)))
+set.seed(1)
+model.glmn <- train(x = trainData_median[1:11],
+y = trainData_median$target,
+method = "glmnet",
+tuneGrid = glmnGrid,
+metric = "ROC",
+trControl = ctrl)
+#model.glmn$bestTune
+
+glmn.pred <- predict(model.glmn, newdata = testData_median, type = "prob")[,2]
+roc.glmn <- roc(testData_median$target, glmn.pred)
+
+```
+
+
+```{r}
+### LDA
+
+# fit model on training and predict on test
+model.lda = lda(target ~ city_development_index + training_hours + gender + relevent_experience + enrolled_university + education_level + major_discipline + experience + company_size + company_type + last_new_job, data = trainData_median)
+lda.pred = predict(model.lda, newdata = testData_median)
+# plot ROC curve
+roc.lda = roc(testData_median$target, lda.pred$posterior[,2], levels = c("No", "Yes"))
+```
+
+
+```{r}
+### QDA
+
+# fit model on trainning and predict on test
+model.qda = qda(target ~ city_development_index + training_hours + gender + relevent_experience + enrolled_university + education_level + major_discipline + experience + company_size + company_type + last_new_job,
+data = trainData_median)
+qda.pred = predict(model.qda, newdata = testData_median)
+# plot ROC curve
+roc.qda = roc(testData_median$target, qda.pred$posterior[,2],
+levels = c("No", "Yes"))
+```
+
+
+```{r}
+### GAM
+
+set.seed(1)
+model.gam <- train(x = trainData_median[1:11],
+y = trainData_median$target,
+method = "gam",
+metric = "ROC",
+trControl = ctrl)
+#model.gam$finalModel
+
+gam.pred = predict(model.gam, newdata = testData_median, type = "prob")[,2]
+roc.gam = roc(testData_median$target, gam.pred)
+```
+
+### Figure 4:
+
+```{r}
+### MARS
+
+set.seed(1)
+model.mars <- train(x = trainData_median[1:11],
+y = trainData_median$target,
+method = "earth",
+tuneGrid = expand.grid(degree = 1:3,
+nprune = 8:15),
+metric = "ROC",
+trControl = ctrl)
+
+#coef(model.mars$finalModel)
+mars.pred <- predict(model.mars, newdata = testData_median, type = "prob")[,2]
+roc.mars <- roc(testData_median$target, mars.pred)
+vip(model.mars$finalModel)
+
+```
+
+### Figure 5:
+
+```{r}
+pdp::partial(model.mars, pred.var = c("city_development_index"), grid.resolution = 200) %>% autoplot()
+```
+
+### Figure 6:
+
+```{r}
+### Model Comparison
+
+auc <- c(roc.glm$auc[1], roc.glmn$auc[1], roc.lda$auc[1], roc.qda$auc[1], roc.gam$auc[1], roc.mars$auc[1])
+
+plot(roc.glm, legacy.axes = TRUE)
+plot(roc.glmn, col = 2, add = TRUE)
+plot(roc.lda, col = 3, add = TRUE)
+plot(roc.qda, col = 4, add = TRUE)
+plot(roc.gam, col = 5, add = TRUE)
+plot(roc.mars, col = 6, add = TRUE)
+
+modelNames <- c("GLM","GLMN","LDA","QDA","GAM", "MARS")
+legend("bottomright", legend = paste0(modelNames, ": ", round(auc,3)),
+col = 1:6, lwd = 2)
+```
+
+

@@ -24,6 +24,8 @@ knitr::opts_chunk$set(echo = TRUE)
 
 
 ```{r include=FALSE}
+options(error=recover)
+
 library(tidyverse)
 library(visdat)
 library(caret)
@@ -506,7 +508,7 @@ number of retained terms: 10
 
 ```{r include=FALSE}
 ggplot(model.gbma)
-model.gbmas$bestTune
+model.gbma$bestTune
 coef(model.gbma$finalModel)
 ```
 
@@ -517,17 +519,9 @@ For test dataset, I used the MARS model to make prediction on test dataset, then
 I used vip function to find the important variables. According to the result, the most important variable is "city_development_index", which aligned with the previous finding in visualization. Followed city development index is the relevant experiences. Besides, the vip result also showed that education_level:College and enrolled_university:enrolled also play important roles in predicting the outcome.
 
 ```{r include = FALSE}
-set.seed(1)
-vip(model.gbma, 
-    method = "permute", 
-    train = x_tr_1000,
-    target = "Target",
-    metric = "ROC",
-    nsim = 10,
-    pred_wrapper = predict,
-    geom = "boxplot", 
-    all_permutations = TRUE,
-    mapping = aes_string(fill = "Variable"))
+
+ggplot(model.gbma, highlight = TRUE)
+summary(model.gbma$finalModel, las = 2, cBars = 19, cex.names = 0.6)
 ```
 
 
@@ -542,14 +536,14 @@ p1 <- pdp::partial(model.gbma, pred.var = c("city_development_index"), grid.reso
 ###Individual conditional expectation curve
 
 ```{r include=FALSE}
-ice1.gbma <- gbma.fit %>% 
+ice1.gbma <- model.gbma %>% 
   partial(pred.var = "city_development_index", 
           grid.resolution = 100,
           ice = TRUE) %>%
   autoplot(train = x_tr_1000, alpha = .1) +
   ggtitle("ICE, not centered") 
 
-ice2.gbma <- gbma.fit %>% 
+ice2.gbma <- model.gbma %>% 
   partial(pred.var = "city_development_index", 
           grid.resolution = 100,
           ice = TRUE) %>%
