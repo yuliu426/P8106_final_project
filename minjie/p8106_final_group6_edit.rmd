@@ -23,7 +23,7 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 
-```{r include=FALSE}
+```{r include=TRUE, message=FALSE}
 library(tidyverse)
 library(visdat)
 library(caret)
@@ -40,6 +40,9 @@ library(ranger)
 library(gbm)
 library(e1071)
 library(kernlab)
+library(DALEX)
+
+set.seed(1)
 ```
 
 
@@ -473,6 +476,7 @@ confusionMatrix(data = as.factor(test.pred),
                 reference = y_te,
                 positive = "change")
 model.svmr$bestTune
+
 ```
 
 
@@ -509,9 +513,9 @@ degree of interaction:1
 number of retained terms: 10
 
 ```{r include=TRUE, message=FALSE}
-ggplot(model.gbma)
-model.gbma$bestTune
-coef(model.gbma$finalModel)
+ggplot(model.svmr)
+model.svmr$bestTune
+coef(model.svmr$finalModel)
 ```
 
 ### Trainig/Testing performamce
@@ -522,32 +526,40 @@ For test dataset, I used the MARS model to make prediction on test dataset, then
 
 I used vip function to find the important variables. According to the result, the most important variable is "city_development_index", which aligned with the previous finding in visualization. Followed city development index is the relevant experiences. Besides, the vip result also showed that education_level:College and enrolled_university:enrolled also play important roles in predicting the outcome.
 
-```{r include=TRUE, message=FALSE}
 
-ggplot(model.gbma, highlight = TRUE)
-summary(model.gbma$finalModel, las = 2, cBars = 19, cex.names = 0.6)
+```{r include=TRUE, message=FALSE}
+explainer_svm <- explain(model.svmr,
+label = "svmr",
+data = x_tr_1000,
+y = as.numeric(y_tr_1000 == "change"),
+verbose = FALSE)
+
+vi_svm <- model_parts(explainer_svm)
+plot(vi_svm)
+
 ```
 
 
 ### Partial Dependence Plot
 
 ```{r include=TRUE, message=FALSE}
-p1 <- pdp::partial(model.gbma, pred.var = c("city_development_index"), grid.resolution = 10) %>% autoplot()
- p1
+
+p1 <- pdp::partial(model.svmr, pred.var = c("city_development_index"), grid.resolution = 10) %>% autoplot()
+p1
 ```
 
 
 ### Individual conditional expectation curve
 
 ```{r include=TRUE, message=FALSE}
-ice1.gbma <- model.gbma %>% 
+ice1.svmr <- model.svmr %>% 
   partial(pred.var = "city_development_index", 
           grid.resolution = 100,
           ice = TRUE) %>%
   autoplot(train = x_tr_1000, alpha = .1) +
   ggtitle("ICE, not centered") 
 
-ice2.gbma <- model.gbma %>% 
+ice2.svmr <- model.svmr %>% 
   partial(pred.var = "city_development_index", 
           grid.resolution = 100,
           ice = TRUE) %>%
@@ -556,7 +568,7 @@ ice2.gbma <- model.gbma %>%
   ggtitle("ICE, centered") 
 
 
-grid.arrange(ice1.gbma, ice2.gbma, nrow = 1)
+grid.arrange(ice1.svmr, ice2.svmr, nrow = 1)
 ```
 
 
